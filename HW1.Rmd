@@ -1,0 +1,705 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+require(openxlsx)
+require(ggplot2)
+require(data.table)
+require(skimr)
+require(GGally)
+require(ggcorrplot)
+require(forecast)
+require(lubridate)
+require(repr)
+require(lmtest)
+options(repr.plot.width=12.7, repr.plot.height=8.5)
+data_path = '/Users/ahmetceliker/Desktop/IE 360 HW1/toplamkredihacmi.xlsx'
+kredi=read.xlsx(data_path,sheet='data')
+str(kredi)
+
+```
+
+
+```{r}
+summary_data=skim(kredi)
+print(summary_data)
+```
+
+
+
+```{r}
+kredi=data.table(kredi)
+str(kredi)
+
+correl_info=cor(kredi)
+
+ggcorrplot(correl_info, 
+           hc.order = TRUE, 
+           type = "lower",
+           lab = TRUE)
+```
+```{r}
+ggplot(kredi, aes(x=MevduatFaizOrani,y=KrediHacmi)) + geom_point()
+```
+
+
+```{r}
+l_fit = lm(KrediHacmi~.,data=kredi)
+l_fit
+```
+
+
+```{r}
+summary(l_fit)
+```
+
+```{r}
+plot(l_fit)
+
+```
+
+```{r}
+ggplot(kredi, aes(x=MevduatFaizOrani,y=KrediHacmi)) + geom_point() +geom_smooth(method='lm')
+```
+```{r}
+ggplot(kredi, aes(x=MevduatFaizOrani,y=KrediHacmi)) + geom_point()+geom_smooth(method='loess')
+```
+
+
+```{r}
+summary(l_fit)
+```
+
+```{r}
+kredi[, trnd := 1:.N]
+head(kredi)
+```
+
+```{r}
+lm_trend=lm(KrediHacmi~trnd,kredi)
+summary(lm_trend)
+```
+
+```{r}
+# New Model with Trend
+l_fit_trend <- lm(KrediHacmi ~ MevduatFaizOrani + trnd, data = kredi)
+
+# Summary of New Model with Trend
+summary(l_fit_trend)
+```
+```{r}
+bptest(l_fit_trend)
+ggplot(kredi, aes(x = MevduatFaizOrani, y = KrediHacmi)) +
+  geom_point() +
+  geom_smooth(
+    aes(y = predict(l_fit_trend, newdata = data.frame(MevduatFaizOrani = kredi$MevduatFaizOrani, trnd = kredi$trnd))),
+    method = 'lm',
+    color = 'blue',
+    linetype = 'solid'
+  )
+```
+
+```{r}
+checkresiduals(l_fit_trend$residuals)
+```
+```{r}
+require(tseries)
+adf.test(kredi$KrediHacmi)
+adf.test(l_fit_trend$residuals)
+
+```
+
+
+
+```{r}
+summary(kredi)
+str(kredi)
+```
+
+
+
+```{r}
+# Differencing the relevant variables
+kredi_diff <- kredi[, lapply(.SD, diff), .SDcols = c("KrediHacmi", "MevduatFaizOrani")]
+# Checking the first few rows of the differenced dataset
+head(kredi_diff)
+
+# Model without trend and with differencing
+l_fit_diff_simple <- lm(KrediHacmi ~ MevduatFaizOrani, data = kredi_diff)
+
+# Summary of the model
+summary(l_fit_diff_simple)
+```
+
+```{r}
+ggplot(kredi_diff, aes(x=MevduatFaizOrani,y=KrediHacmi)) + geom_point() +geom_smooth(method='lm')
+
+```
+
+
+
+```{r}
+# Applying log transformation to KrediHacmi variable
+kredi$KrediHacmi <- log(kredi$KrediHacmi + 1)  # Adding 1 to avoid log(0) errors
+
+# Fit a new model with the log-transformed KrediHacmi variable
+l_fit_log <- lm(KrediHacmi ~ MevduatFaizOrani + trnd, data = kredi)
+
+# Summary of the new model with the log-transformed KrediHacmi variable
+summary(l_fit_log)
+
+
+```
+```{r}
+checkresiduals(l_fit_log)
+adf.test(kredi$KrediHacmi)
+adf.test(l_fit_log$residuals)
+```
+
+
+
+```{r}
+ggplot(kredi_diff, aes(x=MevduatFaizOrani,y=KrediHacmi)) + geom_point() +geom_smooth(method='lm')
+```
+
+```{r}
+weights <- 1 / abs(l_fit_log$residuals)
+l_fit_wls <- lm(KrediHacmi ~ MevduatFaizOrani + trnd, data = kredi, weights = weights)
+summary(l_fit_wls)
+checkresiduals(l_fit_wls)
+kredi$week_number <- seq(1, nrow(kredi))
+head(kredi,50)
+```
+
+
+
+```{r}
+plot(log10(abs(fft_kredi)), main = "Kredi Hacmi DFT (Logaritmik)", xlab = "Frekans", ylab = "Genlik")
+
+
+```
+
+
+```{r}
+plot(l_fit_wls)
+```
+
+
+
+```{r}
+acf(l_fit_wls$residuals,200)
+mean(l_fit_wls$residuals)
+cor(l_fit_wls$residuals, kredi$MevduatFaizOrani)
+cor(l_fit_wls$residuals, kredi$trnd)
+```
+
+```{r}
+#to find seasonality index
+ggplot(kredi[week_number>1 & week_number<300] ,aes(x=week_number)) +
+        geom_line(aes(y=KrediHacmi,color='real'))
+```
+
+
+```{r}
+
+data_to_plot <- kredi
+y_label <- "Kredi Hacmi"
+ggplot(data_to_plot, aes(x = trnd, y = KrediHacmi)) +
+  geom_point(size = 3) +  # Adjust point size as desired
+  labs(title = "Trend vs. Kredi Hacmi",
+       x = "Trend",
+       y = y_label)
+  
+```
+
+```{r}
+#monthly seasonality with lag of 20) fourier seris
+
+kredi$seasonality_sin <- sin(2*pi * ((kredi$week_number - 1) %% 20) / 20)  # Her 20 haftada bir sinüs mevsimsellik
+kredi$seasonality_cos <- cos(2*pi * ((kredi$week_number - 1) %% 20) / 20)  # Her 20 haftada bir kosinüs mevsimsellik
+
+l_fit_wls_fourier <- lm(KrediHacmi ~ MevduatFaizOrani + trnd + seasonality_sin + seasonality_cos, data = kredi, weights = weights)
+summary(l_fit_wls_fourier)
+checkresiduals(l_fit_wls_fourier)
+ggplot(kredi, aes(x = MevduatFaizOrani, y = KrediHacmi)) +
+  geom_point(alpha = 0.5) +  # Adjust alpha for point transparency
+  geom_smooth(
+    method = 'lm',
+    aes(y = predict(l_fit_wls_fourier, newdata = data.frame(MevduatFaizOrani = kredi$MevduatFaizOrani, trnd = kredi$trnd, seasonality_sin = kredi$seasonality_sin, seasonality_cos = kredi$seasonality_cos))),
+    color = 'blue',
+    linetype = 'solid'
+  ) +
+  labs(title = "Fitted Model with WLS, Trend, and Fourier Features",
+       x = "MevduatFaizOrani",
+       y = "Kredi Hacmi")
+
+```
+```{r}
+#Checking all assumpitons of linear regression model:
+# Check if mean of residuals is close to zero
+mean(residuals(l_fit_wls_fourier))
+#Check for autocorrelation in residuals
+acf(residuals(l_fit_wls_fourier))
+pacf(residuals(l_fit_wls_fourier))
+summary(l_fit_wls_fourier)
+checkresiduals(l_fit_wls_fourier)
+```
+
+```{r}
+checkresiduals(l_fit_wls_fourier)
+```
+
+```{r}
+# Include lags of residuals as predictors (adjust lags as needed)
+l_fit_wls_fourier_ar <- lm(KrediHacmi ~ MevduatFaizOrani + trnd + seasonality_sin + seasonality_cos + 
+                              residuals(l_fit_wls_fourier) + stats::lag(residuals(l_fit_wls_fourier), 2), 
+                              data = kredi, weights = weights)
+
+# Check autocorrelation in residuals of the new model (l_fit_wls_fourier_ar)
+acf(residuals(l_fit_wls_fourier_ar))
+pacf(residuals(l_fit_wls_fourier_ar))
+
+```
+
+```{r}
+data_path="/Users/ahmetceliker/Desktop/IE 360 HW1/arabaüretimi.xlsx"
+
+arabafiyat=read.xlsx(data_path)
+arabafiyat$Tarih <- ym(arabafiyat$Tarih)
+str(arabafiyat)
+
+```
+
+```{r}
+summary_data=skim(arabafiyat)
+print(arabafiyat)
+```
+
+```{r}
+arabafiyat2 <- arabafiyat[, -which(names(arabafiyat) == "Tarih")]
+
+# Check the structure of the new data frame
+str(arabafiyat2)
+```
+```{r}
+
+correl_info=cor(arabafiyat2)
+
+ggcorrplot(correl_info, 
+           hc.order = TRUE, 
+           type = "lower",
+           lab = TRUE)
+```
+
+
+```{r}
+ggplot(arabafiyat2, aes(x=KrediFaizi,y=ArabaFiyat)) + geom_point()
+```
+```{r}
+ggpairs(arabafiyat2)
+```
+
+
+
+```{r}
+l_fit = lm(ArabaFiyat~.,data=arabafiyat2)
+l_fit
+
+summary(l_fit)
+
+```
+
+
+```{r}
+plot(l_fit)
+```
+
+```{r}
+ggplot(arabafiyat2, aes(x=KrediFaizi,y=ArabaFiyat)) + geom_point()+ geom_smooth(method='lm')
+
+ggplot(arabafiyat2, aes(x=KrediFaizi,y=ArabaFiyat)) + geom_point()+ geom_smooth(method='loess')
+```
+
+```{r}
+ggplot(arabafiyat2, aes(x=UretimAdet,y=ArabaFiyat)) + geom_point()+ geom_smooth(method='lm')
+
+ggplot(arabafiyat2, aes(x=UretimAdet,y=ArabaFiyat)) + geom_point()+ geom_smooth(method='loess')
+```
+
+```{r}
+ggplot(arabafiyat, aes(x = Tarih, y = ArabaFiyat)) +
+  geom_line(color = "blue") +
+  labs(title = "Araba Satış Fiyatı", x = "Tarih", y = "Satış Fiyatı")
+```
+
+
+```{r}
+
+arabafiyat$ArabaFiyat <- log(arabafiyat$ArabaFiyat + 1)
+summary(arabafiyat)
+
+
+l_fit_log <- lm(ArabaFiyat~., data=arabafiyat)
+
+
+summary(l_fit_log)
+
+
+```
+
+```{r}
+ggplot(arabafiyat, aes(x = Tarih, y = ArabaFiyat)) +
+  geom_line(color = "blue") +
+  labs(title = "Araba Satış Fiyatı Log Transformed", x = "Tarih", y = "Satış Fiyatı Log")
+```
+
+```{r}
+ggplot(arabafiyat, aes(x = Tarih, y = KrediFaizi)) +
+  geom_line(color = "blue") +
+  labs(title = "Araba Kredi Faizi", x = "Tarih", y = "KrediFaizi")
+```
+
+```{r}
+
+logtransformed = copy(arabafiyat)
+logtransformed$KrediFaizi <- log(logtransformed$KrediFaizi + 1)
+summary(logtransformed)
+head(logtransformed)
+
+l_fit_log <- lm(ArabaFiyat~., data=logtransformed)
+
+
+summary(l_fit_log)
+```
+```{r}
+ggplot(logtransformed, aes(x = Tarih, y = KrediFaizi)) +
+  geom_line(color = "blue") +
+  labs(title = "Kredi Faizi Log Transformed", x = "Tarih", y = "Satış Fiyatı")
+```
+```{r}
+"After applying the logarithmic transformation, there wasn't a significant change, so there's no need to take the logarithm of the credit interest rate data."
+```
+
+```{r}
+ggplot(arabafiyat, aes(x = Tarih, y = UretimAdet)) +
+  geom_line(color = "blue") +
+  labs(title = "Araba Uretim Adedi", x = "Tarih", y = "Uretim")
+```
+
+```{r}
+logtransformed$UretimAdet <- log(logtransformed$UretimAdet + 1)
+summary(logtransformed)
+head(logtransformed)
+
+
+l_fit_log <- lm(ArabaFiyat~., data=logtransformed)
+
+
+summary(l_fit_log)
+```
+
+
+```{r}
+ggplot(logtransformed, aes(x = Tarih, y = UretimAdet)) +
+  geom_line(color = "blue") +
+  labs(title = "Araba Uretim Adedi Log Transformed", x = "Tarih", y = "Satış Fiyatı")
+```
+
+```{r}
+library(dplyr)
+
+logtransformed <- logtransformed %>% mutate(trnd = row_number())
+
+summary(logtransformed)
+l_trend <- lm(ArabaFiyat~ KrediFaizi + UretimAdet + trnd ,data=logtransformed)
+summary(l_trend)
+
+
+```
+```{r}
+checkresiduals(l_trend$residuals)
+```
+```{r}
+library(tseries)
+kpss_test_result <- adf.test(residuals(l_trend), alternative = "stationary")
+kpss_test_result
+
+```
+```{r}
+plot(residuals(l_trend))
+acf(residuals(l_trend))
+pacf(residuals(l_trend))
+
+```
+```{r}
+plot(l_trend)
+```
+```{r}
+logtransformed <- as.data.table(logtransformed)
+head(logtransformed)
+# Differencing the relevant variables
+logtransformeddiff <- logtransformed[, lapply(.SD, diff), .SDcols = c("KrediFaizi", "ArabaFiyat", "UretimAdet")]
+# Checking the first few rows of the differenced dataset
+head(logtransformeddiff)
+logtransformeddiff[, trnd := 1:.N]
+
+# Model without trend and with differencing
+l_fit_log_diff<- lm(ArabaFiyat ~ KrediFaizi + UretimAdet+trnd, data = logtransformeddiff)
+
+# Summary of the model
+summary(l_fit_log_diff)
+```
+
+
+```{r}
+require(tseries)
+adf.test(logtransformeddiff$ArabaFiyat)
+adf.test(l_fit_log_diff$residuals)
+"test results give both araba fiyat and residuals of the model are stationary"
+```
+
+```{r}
+ggplot(logtransformeddiff, aes(x=UretimAdet,y=ArabaFiyat)) + geom_point()+ geom_smooth(method='lm')
+
+ggplot(logtransformeddiff, aes(x=UretimAdet,y=ArabaFiyat)) + geom_point()+ geom_smooth(method='loess')
+```
+```{r}
+ggplot(logtransformeddiff, aes(x=KrediFaizi,y=ArabaFiyat)) + geom_point()+ geom_smooth(method='lm')
+
+ggplot(logtransformeddiff, aes(x=KrediFaizi,y=ArabaFiyat)) + geom_point()+ geom_smooth(method='loess')
+```
+```{r}
+plot(l_fit_log_diff)
+```
+
+```{r}
+l_diff_log_withouttrend <- lm(ArabaFiyat ~ KrediFaizi + UretimAdet , data = logtransformeddiff)
+summary(l_diff_log_withouttrend)
+```
+```{r}
+ggplot(logtransformeddiff, aes(x = trnd, y = ArabaFiyat)) +
+  geom_line(color = "blue") +
+  labs(x = "Tarih", y = "Satış Fiyatı")
+```
+```{r}
+transformed_diff=copy(logtransformeddiff[-c(114,143,106)])
+ggplot(transformed_diff, aes(x = trnd, y = ArabaFiyat)) +
+  geom_line(color = "blue") +
+  labs(x = "Tarih", y = "Satış Fiyatı")
+
+```
+```{r}
+ggplot(logtransformeddiff, aes(x = KrediFaizi, y = ArabaFiyat)) +
+  geom_line(color = "blue") +
+  labs(x = "Kredi Faizi", y = "Satış Fiyatı")
+```
+```{r}
+ggplot(logtransformeddiff, aes(x = UretimAdet, y = ArabaFiyat)) +
+  geom_line(color = "blue") +
+  labs(x = "Uretim Adet", y = "Satış Fiyatı")
+```
+
+```{r}
+l_fit_log_diff<- lm(ArabaFiyat ~ KrediFaizi + UretimAdet+trnd, data = transformed_diff)
+plot(l_fit_log_diff)
+summary(l_fit_log_diff)
+```
+```{r}
+weights <- 1 / abs(l_fit_log_diff$residuals)
+l_fit_log_diff_wls <- lm(ArabaFiyat ~ KrediFaizi + UretimAdet + trnd, data = transformed_diff, weights = weights)
+summary(l_fit_log_diff_wls)
+```
+
+```{r}
+plot(residuals(l_fit_log_diff))
+acf(residuals(l_fit_log_diff))
+pacf(residuals(l_fit_log_diff))
+```
+
+```{r}
+tmp=copy(transformed_diff)
+tmp[,actual:=ArabaFiyat]
+tmp[,predicted_trend:=predict(l_fit_log_diff_wls,tmp)]
+tmp[,residual_trend:=actual-predicted_trend]
+#head(tmp)
+ggplot(tmp ,aes(x=trnd)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend,color='predicted'))
+```
+
+
+```{r}
+data_path="/Users/ahmetceliker/Desktop/IE 360 HW1/m1paraarzıı.xlsx"
+
+data=read.xlsx(data_path)
+
+str(data)
+```
+
+```{r}
+convert_to_ymd <- function(date_string) {
+  
+  formatted_date <- as.Date(date_string, format = "%d-%m-%Y")
+  
+  return(formatted_date)
+}
+
+
+data$Tarih <- convert_to_ymd(data$Tarih) 
+
+head(data)
+str(data)
+
+```
+
+```{r}
+ggplot(data, aes(x = Tarih, y = KrediKartıHarcama)) +
+  geom_line(color = "blue")
+```
+
+
+
+```{r}
+ggplot(data, aes(x = Tarih, y = ParaArzı)) +
+  geom_line(color = "blue")
+```
+
+
+
+
+```{r}
+ggplot(data, aes(x = Tarih, y = ElektrikTüketim)) +
+  geom_line(color = "blue")
+```
+
+
+
+```{r}
+data2 <- subset(data, select = -Tarih)
+
+correl_info=cor(data2)
+
+ggcorrplot(correl_info, 
+           hc.order = TRUE, 
+           type = "lower",
+           lab = TRUE)
+```
+
+```{r}
+ggpairs(data)
+```
+```{r}
+l_fit = lm(KrediKartıHarcama~.,data=data)
+summary(l_fit)
+```
+
+```{r}
+ggplot(data, aes(x=KrediKartıHarcama,y=ParaArzı)) + geom_point()+geom_smooth(method='lm')
+```
+```{r}
+ggplot(data, aes(x=KrediKartıHarcama,y=ElektrikTüketim)) + geom_point()+geom_smooth(method='lm')
+```
+
+```{r}
+plot(l_fit)
+```
+
+```{r}
+checkresiduals(l_fit)
+```
+
+
+```{r}
+data <- as.data.table(data)
+data[, trnd := 1:.N]
+data[,ay:=as.character(month(Tarih,label=T))]
+data[, yil := as.character(format(Tarih, "%Y"))]
+data[, log_ParaArzı := log(ParaArzı)]
+data[, log_KrediKartıHarcama := log(KrediKartıHarcama)]
+head(data)
+```
+
+
+```{r}
+
+
+l_fit_log <- lm(log_KrediKartıHarcama ~ log_ParaArzı + ElektrikTüketim , data=data)
+
+
+summary(l_fit_log)
+
+
+ggplot(data, aes(x=log_ParaArzı,y=log_KrediKartıHarcama)) + 
+geom_point() + 
+geom_smooth(method='lm')
+
+
+plot(l_fit_log)
+
+```
+
+```{r}
+checkresiduals(l_fit_log)
+```
+```{r}
+data$Trend_3_Aylik <- rollmean(data$KrediKartıHarcama, 3, fill = NA)
+data$Trend_6_Aylik <- rollmean(data$KrediKartıHarcama, 6, fill = NA)
+
+l_fit_trend <- lm(log_KrediKartıHarcama ~ ElektrikTüketim+log_ParaArzı+ Trend_3_Aylik + Trend_6_Aylik, data=data)
+
+
+summary(l_fit_trend)
+
+```
+
+```{r}
+checkresiduals(l_fit_trend)
+```
+
+```{r}
+ggplot(data, aes(x=Tarih , y = log_KrediKartıHarcama)) +
+  geom_line(color = "blue")
+```
+```{r}
+ggplot(data, aes(x=Tarih , y = log_ParaArzı)) +
+  geom_line(color = "blue")
+```
+
+```{r}
+l_fit_trend_cathegorical <- lm(log_KrediKartıHarcama ~ ElektrikTüketim+log_ParaArzı+ Trend_3_Aylik + Trend_6_Aylik+ay+yil, data=data)
+summary(l_fit_trend_cathegorical)
+```
+
+```{r}
+checkresiduals(l_fit_trend_cathegorical)
+```
+```{r}
+
+data$KrediKartıHarcama_4_Aylik_Gecikmeli <- lag(data$KrediKartıHarcama, 4)
+data$KrediKartıHarcama_6_Aylik_Gecikmeli <- lag(data$KrediKartıHarcama, 6)
+head(data)
+l_fit_gecikmeli <- lm(log_KrediKartıHarcama ~ ElektrikTüketim + log_ParaArzı + KrediKartıHarcama_6_Aylik_Gecikmeli+Trend_3_Aylik +ay+yil, data=data)
+
+
+summary(l_fit_gecikmeli)
+
+```
+
+```{r}
+checkresiduals(l_fit_gecikmeli)
+```
+```{r}
+l_fit_gecikmeli <- lm(log_KrediKartıHarcama ~ log(ElektrikTüketim) + log_ParaArzı + KrediKartıHarcama_6_Aylik_Gecikmeli + Trend_3_Aylik + ay + yil, data=data)
+summary(l_fit_gecikmeli)
+```
+```{r}
+checkresiduals(l_fit_gecikmeli)
+```
+
+
+
+
+
+
